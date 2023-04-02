@@ -1,0 +1,22 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+numpy = "*"
+pandas = "*"
+transformers = "*"
+wandb = "*"
+jupyterlab = "*"
+datasets = "*"
+scikit-learn = "*"
+evaluate = "*"
+nltk = "*"
+pillow = "*"
+ipywidgets = "*"
+
+[dev-packages]
+
+[requires]
+python_version = "3.9"
