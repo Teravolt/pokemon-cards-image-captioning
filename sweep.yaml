@@ -4,7 +4,7 @@ method: random
 project: pokemon-cards
 
 metric: 
-  name: google_bleu
+  name: eval/avg_google_bleu
   goal: maximize
 
 parameters:
