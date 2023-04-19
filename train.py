@@ -39,8 +39,10 @@ GOOGLE_BLEU_METRIC = evaluate.load('google_bleu')
 # PERPLEXITY = evaluate.load('perplexity', module_type='metric')
 
 # Define validation/testing results table 
-FULL_RESULTS_TABLE = wandb.Table(columns=['eval_iter', 'pred_text', 'gt_text', 'google_bleu'])
+FULL_RESULTS_TABLE = wandb.Table(columns=['eval_iter', 'image', 'pred_text', 'gt_text', 'google_bleu'])
 EVAL_ITER = 0
+
+VAL_DF = None
 
 CONFIG = Namespace(
     predict_with_generate=True,
@@ -149,7 +151,7 @@ def compute_metrics(eval_obj: EvalPrediction):
         google_bleu_metric = \
             GOOGLE_BLEU_METRIC.compute(predictions=[pred_text], references=[gt_text])
 
-        FULL_RESULTS_TABLE.add_data(EVAL_ITER,
+        FULL_RESULTS_TABLE.add_data(EVAL_ITER, VAL_DF['image'].values[i],
                                     pred_text, gt_text[0],
                                     google_bleu_metric['google_bleu'])
 
@@ -165,7 +167,9 @@ def get_final_results(final_val_iter: int, full_results_table: wandb.Table):
     Get final results
     """
 
-    final_results_table = wandb.Table(columns=['val_iter', 'pred_text', 'gt_text', 'google_bleu'])
+    final_results_table = wandb.Table(
+        columns=['val_iter', 'image', 'pred_text', 'gt_text', 'google_bleu'])
+
     for result in full_results_table.data:
         if result[0] == final_val_iter:
             final_results_table.add_data(*result)
@@ -176,18 +180,19 @@ def train(config):
     """
     Training process
     """
+    global VAL_DF
 
     run = wandb.init(project='pokemon-cards', entity=None, job_type="training", name=config.run_name)
     wandb_table = download_data(run)
     train_val_df = get_df(wandb_table)
 
     train_df = train_val_df[train_val_df.split == 'train']
-    val_df = train_val_df[train_val_df.split == 'valid']
+    VAL_DF = train_val_df[train_val_df.split == 'valid']
 
     if config.train_limit > 0:
         train_df = train_df.iloc[:config.train_limit, :]
     if config.val_limit > 0:
-        val_df = val_df.iloc[:config.val_limit, :]
+        VAL_DF = VAL_DF.iloc[:config.val_limit, :]
 
     train_dataset = PokemonCardsDataset(
         train_df.image.values,
@@ -195,8 +200,8 @@ def train(config):
         config)
 
     val_dataset = PokemonCardsDataset(
-        val_df.image.values,
-        val_df.caption.values,
+        VAL_DF.image.values,
+        VAL_DF.caption.values,
         config)
 
     training_args = Seq2SeqTrainingArguments(
@@ -239,6 +244,12 @@ def train(config):
     final_results_table = get_final_results(EVAL_ITER-1, FULL_RESULTS_TABLE)
     run.log({'final_results_table': final_results_table})
 
+    if config.log_model:
+        model_art = wandb.Artifact("pokemon-image-captioning-model", type="model")
+        torch.save(trainer.model.state_dict(), "model_weights.pt")
+        model_art.add_file("model_weights.pt")
+        run.log_artifact(model_art)
+
     run.finish()
 
     return train_results
@@ -279,6 +290,8 @@ def parse_args():
                         help='Number of beams used in text generation')
     parser.add_argument('--log_full_results', action='store_true',
                         help='Log eval results over all iterations')
+    parser.add_argument('--log_model', action='store_true',
+                        help='Log model to Weights and Biases')
     parser.add_argument('--train_limit',
                         type=int, default=CONFIG.train_limit,
                         help='Limit number of training instances used')
