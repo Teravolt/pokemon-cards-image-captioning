@@ -24,15 +24,12 @@ import wandb
 
 SEED = 1
 
-# Define model
 MODEL = None
-# MODEL = VisionEncoderDecoderModel.from_pretrained("nlpconnect/vit-gpt2-image-captioning")
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# MODEL.to(DEVICE)
 
 # Define image feature extractor and tokenizer
+# NOTE: these are not trained, so we can get them directly from HuggingFace
 FEATURE_EXTRACTOR = AutoFeatureExtractor.from_pretrained("nlpconnect/vit-gpt2-image-captioning")
-#ViTFeatureExtractor.from_pretrained("nlpconnect/vit-gpt2-image-captioning")
 TOKENIZER = AutoTokenizer.from_pretrained("nlpconnect/vit-gpt2-image-captioning")
 
 # Define metrics
@@ -43,13 +40,13 @@ GOOGLE_BLEU_METRIC = evaluate.load('google_bleu')
 FULL_RESULTS_TABLE = wandb.Table(columns=['eval_iter', 'image', 'pred_text', 'gt_text', 'google_bleu'])
 EVAL_ITER = 0
 
-VAL_DF = None
+EVAL_DF = None
 
 CONFIG = Namespace(
     predict_with_generate=True,
     include_inputs_for_metrics=False,
     report_to='wandb',
-    run_name='fine_tuning',
+    run_name='fine_tuning_eval',
     evaluation_strategy='epoch',
     save_strategy='epoch',
     per_device_train_batch_size=16,
@@ -59,12 +56,11 @@ CONFIG = Namespace(
     push_to_hub=False,
     load_best_model_at_end=True,
     seed=SEED,
-    output_dir='baseline-ft-model-output/',
+    output_dir='eval-output/',
     optim='adamw_torch',
     generation_max_length=256,
     generation_num_beams=1,
     log_preds=False,
-    train_limit=256,
     val_limit=0
 )
 
@@ -152,7 +148,7 @@ def compute_metrics(eval_obj: EvalPrediction):
         google_bleu_metric = \
             GOOGLE_BLEU_METRIC.compute(predictions=[pred_text], references=[gt_text])
 
-        FULL_RESULTS_TABLE.add_data(EVAL_ITER, VAL_DF['image'].values[i],
+        FULL_RESULTS_TABLE.add_data(EVAL_ITER, EVAL_DF['image'].values[i],
                                     pred_text, gt_text[0],
                                     google_bleu_metric['google_bleu'])
 
@@ -177,116 +173,43 @@ def get_final_results(final_val_iter: int, full_results_table: wandb.Table):
 
     return final_results_table
 
-def train(config):
-    """
-    Training process
-    """
-    global VAL_DF
-
-    run = wandb.init(project='pokemon-cards', entity=None, job_type="training", name=config.run_name)
-    wandb_table = download_data(run)
-    train_val_df = get_df(wandb_table)
-
-    train_df = train_val_df[train_val_df.split == 'train']
-    VAL_DF = train_val_df[train_val_df.split == 'valid']
-
-    if config.train_limit > 0:
-        train_df = train_df.iloc[:config.train_limit, :]
-    if config.val_limit > 0:
-        VAL_DF = VAL_DF.iloc[:config.val_limit, :]
-
-    train_dataset = PokemonCardsDataset(
-        train_df.image.values,
-        train_df.caption.values,
-        config)
-
-    val_dataset = PokemonCardsDataset(
-        VAL_DF.image.values,
-        VAL_DF.caption.values,
-        config)
-
-    training_args = Seq2SeqTrainingArguments(
-        predict_with_generate=config.predict_with_generate,
-        include_inputs_for_metrics=config.include_inputs_for_metrics,
-        report_to=config.report_to,
-        run_name=config.run_name,
-        evaluation_strategy=config.evaluation_strategy,
-        save_strategy=config.save_strategy,
-        per_device_train_batch_size=config.per_device_train_batch_size,
-        per_device_eval_batch_size=config.per_device_eval_batch_size,
-        num_train_epochs=config.num_train_epochs,
-        learning_rate=config.learning_rate,
-        push_to_hub=config.push_to_hub,
-        metric_for_best_model="avg_google_bleu",
-        load_best_model_at_end=config.load_best_model_at_end,
-        seed=config.seed,
-        output_dir=config.output_dir,
-        optim=config.optim,
-        generation_max_length=config.generation_max_length,
-        generation_num_beams=config.generation_num_beams
-        )
-
-    trainer = Seq2SeqTrainer(
-        model=MODEL,
-        args=training_args,
-        compute_metrics=compute_metrics,
-        data_collator=collate_fn,
-        train_dataset=train_dataset,
-        eval_dataset=val_dataset,
-        tokenizer=FEATURE_EXTRACTOR,
-        )
-
-    train_results = trainer.train()
-
-    if config.log_full_results:
-        # Save full metrics table to wandb
-        run.log({'full_results_table': FULL_RESULTS_TABLE})
-
-    # Save final metrics table to wandb
-    final_results_table = get_final_results(EVAL_ITER-1, FULL_RESULTS_TABLE)
-    run.log({'final_results_table': final_results_table})
-
-    if config.log_model:
-        model_art = wandb.Artifact("pokemon-image-captioning-model", type="model")
-        trainer.save_model(f"{config.output_dir}/best_model")
-        model_art.add_dir(f"{config.output_dir}/best_model")
-        run.log_artifact(model_art)
-
-    run.finish()
-
-    return train_results
-
 def eval(config):
     """
     Evaluation process
     """
-    global VAL_DF, MODEL
+    global EVAL_DF, MODEL
 
     run = wandb.init(project='pokemon-cards', entity=None, job_type="eval", name=config.run_name)
-    wandb_table = download_data(run)
-    train_val_df = get_df(wandb_table)
-
-    VAL_DF = train_val_df[train_val_df.split == 'valid']
-
-    if config.val_limit > 0:
-        VAL_DF = VAL_DF.iloc[:config.val_limit, :]
-
-    # eval_df = get_df(wandb_table, True)
-
-    val_dataset = PokemonCardsDataset(
-        VAL_DF.image.values,
-        VAL_DF.caption.values,
-        config)
 
     artifact = run.use_artifact('pkthunder/model-registry/Model Pokemon Cards Image Captioning:v1', type='model')
     artifact_dir = artifact.download()
-    producer_run = artifact.logged_by()
-
-    print(f"Google BLEU from producer run: {producer_run.summary['eval/avg_google_bleu']}")
+    # producer_run = artifact.logged_by()
 
     MODEL = VisionEncoderDecoderModel.from_pretrained(artifact_dir)
     MODEL.to(DEVICE)
-    
+
+    wandb_table = download_data(run)
+
+    # Use validation dataset to ensure that we are using the correct model.
+    train_val_df = get_df(wandb_table)
+
+    EVAL_DF = train_val_df[train_val_df.split == 'valid']
+
+    if config.val_limit > 0:
+        EVAL_DF = EVAL_DF.iloc[:config.val_limit, :]
+
+    val_dataset = PokemonCardsDataset(
+        EVAL_DF.image.values,
+        EVAL_DF.caption.values,
+        config)
+
+    # Get evaluation data and run model
+    # EVAL_DF = get_df(wandb_table, True)
+    # eval_dataset = PokemonCardsDataset(
+    #     EVAL_DF.image.values,
+    #     EVAL_DF.caption.values,
+    #     config)
+
     training_args = Seq2SeqTrainingArguments(
         predict_with_generate=config.predict_with_generate,
         include_inputs_for_metrics=config.include_inputs_for_metrics,
@@ -301,7 +224,6 @@ def eval(config):
         push_to_hub=config.push_to_hub,
         load_best_model_at_end=config.load_best_model_at_end,
         seed=config.seed,
-        metric_for_best_model="avg_google_bleu",
         output_dir=config.output_dir,
         optim=config.optim,
         generation_max_length=config.generation_max_length,
@@ -337,30 +259,15 @@ def parse_args():
     """
     Parse args
     """
-    parser = argparse.ArgumentParser("Train Pokemon Cards Image Captioning Model")
+    parser = argparse.ArgumentParser("Evaluate Pokemon Cards Image Captioning Model")
     parser.add_argument('--run_name',
                         type=str, default=CONFIG.run_name,
                         help='Run Name')
-    parser.add_argument('--per_device_train_batch_size',
-                        type=int, default=CONFIG.per_device_train_batch_size,
-                        help='Per device training batch size')
     parser.add_argument('--per_device_eval_batch_size',
                         type=int, default=CONFIG.per_device_eval_batch_size,
                         help='Per device eval batch size')
-    parser.add_argument('--num_train_epochs',
-                        type=int, default=CONFIG.num_train_epochs,
-                        help='Number of training epochs')
-    parser.add_argument('--learning_rate',
-                        type=float, default=CONFIG.learning_rate,
-                        help='Learning rate')
     parser.add_argument('--seed',
                         type=int, default=CONFIG.seed, help='Random seed')
-    parser.add_argument('--output_dir',
-                        type=str, default=CONFIG.output_dir,
-                        help='Model output directory')
-    parser.add_argument('--optim',
-                        type=str, default=CONFIG.optim,
-                        help='Optimizer to use')
     parser.add_argument('--generation_max_length',
                         type=int, default=CONFIG.generation_max_length,
                         help='Maximum length of generated text')
@@ -369,11 +276,6 @@ def parse_args():
                         help='Number of beams used in text generation')
     parser.add_argument('--log_full_results', action='store_true',
                         help='Log eval results over all iterations')
-    parser.add_argument('--log_model', action='store_true',
-                        help='Log model to Weights and Biases')
-    parser.add_argument('--train_limit',
-                        type=int, default=CONFIG.train_limit,
-                        help='Limit number of training instances used')
     parser.add_argument('--val_limit',
                         type=int, default=CONFIG.val_limit,
                         help='Limit number of validation instances used')
