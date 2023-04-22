@@ -1,5 +1,5 @@
 """
-Train Pokemon Cards Image Captioning Model
+Evaluate Pokemon Cards Image Captioning Model
 """
 
 import argparse
@@ -25,9 +25,10 @@ import wandb
 SEED = 1
 
 # Define model
-MODEL = VisionEncoderDecoderModel.from_pretrained("nlpconnect/vit-gpt2-image-captioning")
+MODEL = None
+# MODEL = VisionEncoderDecoderModel.from_pretrained("nlpconnect/vit-gpt2-image-captioning")
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-MODEL.to(DEVICE)
+# MODEL.to(DEVICE)
 
 # Define image feature extractor and tokenizer
 FEATURE_EXTRACTOR = AutoFeatureExtractor.from_pretrained("nlpconnect/vit-gpt2-image-captioning")
@@ -255,6 +256,83 @@ def train(config):
 
     return train_results
 
+def eval(config):
+    """
+    Evaluation process
+    """
+    global VAL_DF, MODEL
+
+    run = wandb.init(project='pokemon-cards', entity=None, job_type="eval", name=config.run_name)
+    wandb_table = download_data(run)
+    train_val_df = get_df(wandb_table)
+
+    VAL_DF = train_val_df[train_val_df.split == 'valid']
+
+    if config.val_limit > 0:
+        VAL_DF = VAL_DF.iloc[:config.val_limit, :]
+
+    # eval_df = get_df(wandb_table, True)
+
+    val_dataset = PokemonCardsDataset(
+        VAL_DF.image.values,
+        VAL_DF.caption.values,
+        config)
+
+    artifact = run.use_artifact('pkthunder/model-registry/Model Pokemon Cards Image Captioning:v1', type='model')
+    artifact_dir = artifact.download()
+    producer_run = artifact.logged_by()
+
+    print(f"Google BLEU from producer run: {producer_run.summary['eval/avg_google_bleu']}")
+
+    MODEL = VisionEncoderDecoderModel.from_pretrained(artifact_dir)
+    MODEL.to(DEVICE)
+    
+    training_args = Seq2SeqTrainingArguments(
+        predict_with_generate=config.predict_with_generate,
+        include_inputs_for_metrics=config.include_inputs_for_metrics,
+        report_to=config.report_to,
+        run_name=config.run_name,
+        evaluation_strategy=config.evaluation_strategy,
+        save_strategy=config.save_strategy,
+        per_device_train_batch_size=config.per_device_train_batch_size,
+        per_device_eval_batch_size=config.per_device_eval_batch_size,
+        num_train_epochs=config.num_train_epochs,
+        learning_rate=config.learning_rate,
+        push_to_hub=config.push_to_hub,
+        load_best_model_at_end=config.load_best_model_at_end,
+        seed=config.seed,
+        metric_for_best_model="avg_google_bleu",
+        output_dir=config.output_dir,
+        optim=config.optim,
+        generation_max_length=config.generation_max_length,
+        generation_num_beams=config.generation_num_beams
+        )
+
+    trainer = Seq2SeqTrainer(
+        model=MODEL,
+        args=training_args,
+        compute_metrics=compute_metrics,
+        data_collator=collate_fn,
+        tokenizer=FEATURE_EXTRACTOR,
+        )
+
+    eval_results = trainer.evaluate(
+        val_dataset,
+        max_length=config.generation_max_length,
+        num_beams=config.generation_num_beams)
+
+    if config.log_full_results:
+        # Save full metrics table to wandb
+        run.log({'full_results_table': FULL_RESULTS_TABLE})
+
+    # Save final metrics table to wandb
+    final_results_table = get_final_results(EVAL_ITER-1, FULL_RESULTS_TABLE)
+    run.log({'final_results_table': final_results_table})
+
+    run.finish()
+
+    return eval_results
+
 def parse_args():
     """
     Parse args
@@ -306,4 +384,4 @@ def parse_args():
 
 if __name__ == '__main__':
     parse_args()
-    train(CONFIG)
+    eval(CONFIG)
