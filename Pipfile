@@ -6,7 +6,7 @@ name = "pypi"
 [packages]
 numpy = "*"
 pandas = "*"
-transformers = "*"
+transformers = "==4.27.4"
 wandb = "*"
 jupyterlab = "*"
 datasets = "*"
@@ -15,6 +15,11 @@ evaluate = "*"
 nltk = "*"
 pillow = "*"
 ipywidgets = "*"
+matplotlib = "*"
+seaborn = "*"
+scikit-learn-extra = "*"
+gradio = "*"
+torch = "*"
 
 [dev-packages]
 

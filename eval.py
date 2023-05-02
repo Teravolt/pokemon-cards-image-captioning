@@ -191,24 +191,24 @@ def eval(config):
     wandb_table = download_data(run)
 
     # Use validation dataset to ensure that we are using the correct model.
-    train_val_df = get_df(wandb_table)
+    # train_val_df = get_df(wandb_table)
 
-    EVAL_DF = train_val_df[train_val_df.split == 'valid']
+    # EVAL_DF = train_val_df[train_val_df.split == 'valid']
 
-    if config.val_limit > 0:
-        EVAL_DF = EVAL_DF.iloc[:config.val_limit, :]
+    # if config.val_limit > 0:
+    #     EVAL_DF = EVAL_DF.iloc[:config.val_limit, :]
 
-    val_dataset = PokemonCardsDataset(
-        EVAL_DF.image.values,
-        EVAL_DF.caption.values,
-        config)
-
-    # Get evaluation data and run model
-    # EVAL_DF = get_df(wandb_table, True)
-    # eval_dataset = PokemonCardsDataset(
+    # val_dataset = PokemonCardsDataset(
     #     EVAL_DF.image.values,
     #     EVAL_DF.caption.values,
     #     config)
+
+    # Get evaluation data and run model
+    EVAL_DF = get_df(wandb_table, True)
+    eval_dataset = PokemonCardsDataset(
+        EVAL_DF.image.values,
+        EVAL_DF.caption.values,
+        config)
 
     training_args = Seq2SeqTrainingArguments(
         predict_with_generate=config.predict_with_generate,
@@ -239,7 +239,7 @@ def eval(config):
         )
 
     eval_results = trainer.evaluate(
-        val_dataset,
+        eval_dataset,
         max_length=config.generation_max_length,
         num_beams=config.generation_num_beams)
 
