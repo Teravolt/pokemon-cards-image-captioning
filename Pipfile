@@ -20,6 +20,9 @@ seaborn = "*"
 scikit-learn-extra = "*"
 gradio = "*"
 torch = "*"
+umap-learn = "*"
+sacrebleu = "*"
+bert-score = "*"
 
 [dev-packages]
 

@@ -7,14 +7,17 @@ from argparse import Namespace
 
 import pandas as pd
 
+# Package for loading model
 from transformers import VisionEncoderDecoderModel
 from transformers import AutoTokenizer
 from transformers import AutoFeatureExtractor
 
+# Packages for training & evaluating model
 from transformers import Seq2SeqTrainer
 from transformers import Seq2SeqTrainingArguments
 from transformers import EvalPrediction
 
+# Evaluation metrics library
 import evaluate
 
 import torch
@@ -31,12 +34,12 @@ MODEL.to(DEVICE)
 
 # Define image feature extractor and tokenizer
 FEATURE_EXTRACTOR = AutoFeatureExtractor.from_pretrained("nlpconnect/vit-gpt2-image-captioning")
-#ViTFeatureExtractor.from_pretrained("nlpconnect/vit-gpt2-image-captioning")
 TOKENIZER = AutoTokenizer.from_pretrained("nlpconnect/vit-gpt2-image-captioning")
 
 # Define metrics
 GOOGLE_BLEU_METRIC = evaluate.load('google_bleu')
-# PERPLEXITY = evaluate.load('perplexity', module_type='metric')
+BLEU_METRIC = evaluate.load('sacrebleu')
+BERTSCORE_METRIC = evaluate.load('bertscore')
 
 # Define validation/testing results table 
 FULL_RESULTS_TABLE = wandb.Table(columns=['eval_iter', 'image', 'pred_text', 'gt_text', 'google_bleu'])
@@ -62,8 +65,7 @@ CONFIG = Namespace(
     optim='adamw_torch',
     generation_max_length=256,
     generation_num_beams=1,
-    log_preds=False,
-    train_limit=256,
+    train_limit=0,
     val_limit=0
 )
 
@@ -157,10 +159,16 @@ def compute_metrics(eval_obj: EvalPrediction):
 
         avg_google_bleu.append(google_bleu_metric['google_bleu'])
 
-    avg_google_bleu = {'avg_google_bleu': sum(avg_google_bleu)/len(avg_google_bleu)}
+    bleu_metric = \
+        BLEU_METRIC.compute(predictions=pred_texts, references=gt_texts)
+
+    metrics = {
+        'avg_google_bleu': sum(avg_google_bleu)/len(avg_google_bleu),
+        'bleu_metric': bleu_metric['score']}
+
     EVAL_ITER += 1
 
-    return avg_google_bleu
+    return metrics
 
 def get_final_results(final_val_iter: int, full_results_table: wandb.Table):
     """
