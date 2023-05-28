@@ -4,15 +4,25 @@ Gradio app for captioning Pokemon Cards
 
 from argparse import Namespace
 
+import os
+
 import gradio as gr
 
 from transformers import VisionEncoderDecoderModel
 from transformers import AutoTokenizer
 from transformers import AutoFeatureExtractor
 
+import wandb
+
 import torch
 
 MODEL_ARTIFACT = './artifacts/pokemon-image-captioning-model:v9'
+
+if not os.path.exists(MODEL_ARTIFACT):
+    run = wandb.init()
+    artifact = run.use_artifact('pkthunder/model-registry/Pokemon Card Image Captioner 1K Model:v0', type='model')
+    artifact_dir = artifact.download()
+    run.finish()
 
 MODEL = VisionEncoderDecoderModel.from_pretrained(MODEL_ARTIFACT)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
