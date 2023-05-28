@@ -12,7 +12,9 @@ from transformers import AutoFeatureExtractor
 
 import torch
 
-MODEL = VisionEncoderDecoderModel.from_pretrained('./artifacts/pokemon-image-captioning-model:v7')
+MODEL_ARTIFACT = './artifacts/pokemon-image-captioning-model:v9'
+
+MODEL = VisionEncoderDecoderModel.from_pretrained(MODEL_ARTIFACT)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 MODEL.to(DEVICE)
 
