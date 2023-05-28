@@ -6,6 +6,7 @@ import argparse
 from argparse import Namespace
 
 import pandas as pd
+import numpy as np
 
 from transformers import VisionEncoderDecoderModel
 from transformers import AutoTokenizer
@@ -24,6 +25,9 @@ import wandb
 
 SEED = 1
 
+# MODEL_ARTIFACT = 'pkthunder/model-registry/Model Pokemon Cards Image Captioning:v1'
+MODEL_ARTIFACT = 'pkthunder/model-registry/Pokemon Card Image Captioner 1K Model:v0'
+
 MODEL = None
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -34,10 +38,11 @@ TOKENIZER = AutoTokenizer.from_pretrained("nlpconnect/vit-gpt2-image-captioning"
 
 # Define metrics
 GOOGLE_BLEU_METRIC = evaluate.load('google_bleu')
-# PERPLEXITY = evaluate.load('perplexity', module_type='metric')
+BLEU_METRIC = evaluate.load('sacrebleu')
+BERTSCORE_METRIC = evaluate.load('bertscore')
 
 # Define validation/testing results table 
-FULL_RESULTS_TABLE = wandb.Table(columns=['eval_iter', 'image', 'pred_text', 'gt_text', 'google_bleu'])
+FULL_RESULTS_TABLE = wandb.Table(columns=['eval_iter', 'image', 'pred_text', 'gt_text', 'google_bleu', 'bertscore'])
 EVAL_ITER = 0
 
 EVAL_DF = None
@@ -60,7 +65,6 @@ CONFIG = Namespace(
     optim='adamw_torch',
     generation_max_length=256,
     generation_num_beams=1,
-    log_preds=False,
     val_limit=0
 )
 
@@ -139,25 +143,34 @@ def compute_metrics(eval_obj: EvalPrediction):
     gt_texts = TOKENIZER.batch_decode(gt_ids, skip_special_tokens=True)
     gt_texts = [[text.strip()] for text in gt_texts]
 
+    bertscore_metric = \
+        BERTSCORE_METRIC.compute(predictions=pred_texts, references=gt_texts,
+                                 model_type='roberta-large')
+
     avg_google_bleu = []
     for i, (pred_text, gt_text) in enumerate(zip(pred_texts, gt_texts)):
-        # Compute Google BLEU metric
-        # print(f"Prediction {i}: {pred_text}")
-        # print(f"Ground truth {i}: {gt_text}")
 
         google_bleu_metric = \
             GOOGLE_BLEU_METRIC.compute(predictions=[pred_text], references=[gt_text])
 
         FULL_RESULTS_TABLE.add_data(EVAL_ITER, EVAL_DF['image'].values[i],
                                     pred_text, gt_text[0],
-                                    google_bleu_metric['google_bleu'])
+                                    google_bleu_metric['google_bleu'],
+                                    bertscore_metric['f1'][i])
 
         avg_google_bleu.append(google_bleu_metric['google_bleu'])
 
-    avg_google_bleu = {'avg_google_bleu': sum(avg_google_bleu)/len(avg_google_bleu)}
+    bleu_metric = \
+        BLEU_METRIC.compute(predictions=pred_texts, references=gt_texts)
+
+    metrics = {
+        'avg_google_bleu': sum(avg_google_bleu)/len(avg_google_bleu),
+        'bleu_metric': bleu_metric['score'],
+        'bertscore_metric': np.mean(bertscore_metric['f1'])}
+
     EVAL_ITER += 1
 
-    return avg_google_bleu
+    return metrics
 
 def get_final_results(final_val_iter: int, full_results_table: wandb.Table):
     """
@@ -165,7 +178,7 @@ def get_final_results(final_val_iter: int, full_results_table: wandb.Table):
     """
 
     final_results_table = wandb.Table(
-        columns=['val_iter', 'image', 'pred_text', 'gt_text', 'google_bleu'])
+        columns=['val_iter', 'image', 'pred_text', 'gt_text', 'google_bleu', 'bertscore'])
 
     for result in full_results_table.data:
         if result[0] == final_val_iter:
@@ -181,7 +194,7 @@ def eval(config):
 
     run = wandb.init(project='pokemon-cards', entity=None, job_type="eval", name=config.run_name)
 
-    artifact = run.use_artifact('pkthunder/model-registry/Model Pokemon Cards Image Captioning:v1', type='model')
+    artifact = run.use_artifact(MODEL_ARTIFACT, type='model')
     artifact_dir = artifact.download()
     # producer_run = artifact.logged_by()
 
