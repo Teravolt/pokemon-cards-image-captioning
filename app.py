@@ -16,11 +16,12 @@ import wandb
 
 import torch
 
-MODEL_ARTIFACT = './artifacts/pokemon-image-captioning-model:v9'
+MODEL_ARTIFACT = './artifacts/pokemon-image-captioning-model:v10'
 
 if not os.path.exists(MODEL_ARTIFACT):
     run = wandb.init()
-    artifact = run.use_artifact('pkthunder/model-registry/Pokemon Card Image Captioner 1K Model:v0', type='model')
+    artifact = run.use_artifact('pkthunder/model-registry/Pokemon Card Image Captioner Full Dataset Model:v0', type='model')
+    # artifact = run.use_artifact('pkthunder/model-registry/Pokemon Card Image Captioner 1K Model:v0', type='model')
     artifact_dir = artifact.download()
     run.finish()
 
