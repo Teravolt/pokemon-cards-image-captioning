@@ -23,7 +23,6 @@ import evaluate
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset
-from torch import nn
 
 import wandb
 
@@ -69,8 +68,8 @@ CONFIG = Namespace(
     generation_num_beams=1,
     train_limit=0,
     val_limit=0,
-    contrast_t_prime = 2.0,
-    contrast_bias = -0.5
+    contrast_t_prime = 0, 
+    contrast_bias = 0
 )
 
 def download_data(run):
@@ -196,6 +195,13 @@ class ContrastLossTrainer(Seq2SeqTrainer):
 
     def __init__(self, *args, **kwargs):
 
+        self.t_prime = kwargs['contrast_t_prime']
+        self.t = torch.exp(torch.tensor(self.t_prime))
+        self.bias = kwargs['contrast_bias']
+
+        del kwargs['contrast_t_prime']
+        del kwargs['contrast_bias']
+
         super().__init__(*args, **kwargs)
 
     def training_step(self, model, inputs):
@@ -231,16 +237,8 @@ class ContrastLossTrainer(Seq2SeqTrainer):
         # print(f"Encoder embeddings shape: {encoder_embed.shape}")
         # print(f"Decoder embeddings shape: {decoder_embed.shape}")
 
-        wandb.log(
-            {'contrast_t_prime':  model.contrast_t_prime.item(),
-             'contrast_bias': model.contrast_bias.item()
-             })
-        # print(f"Model t' and bias: {model.contrast_t_prime}, {model.contrast_bias}")
-
-        t = torch.exp(model.contrast_t_prime)
-
-        sim = t*torch.matmul(decoder_embed, encoder_embed.transpose(1, 0)) \
-            + model.contrast_bias
+        sim = self.t*torch.matmul(decoder_embed, encoder_embed.transpose(1, 0)) \
+            + self.bias
         # print(f"Similarity shape: {sim.shape}")
 
         labels = 2*torch.eye(batch_size) - torch.ones(batch_size)
@@ -305,13 +303,10 @@ def train(config):
         generation_num_beams=config.generation_num_beams
         )
 
-    MODEL.contrast_t_prime = nn.Parameter(
-        torch.tensor(CONFIG.contrast_t_prime, dtype=torch.float32))
-    MODEL.contrast_bias = nn.Parameter(
-        torch.tensor(CONFIG.contrast_bias, dtype=torch.float32))
-
     trainer = ContrastLossTrainer(
         model=MODEL,
+        contrast_t_prime=CONFIG.contrast_t_prime,
+        contrast_bias=CONFIG.contrast_bias,
         args=training_args,
         compute_metrics=compute_metrics,
         data_collator=collate_fn,
