@@ -13,7 +13,6 @@ datasets = "*"
 scikit-learn = "*"
 evaluate = "*"
 nltk = "*"
-pillow = "*"
 ipywidgets = "*"
 matplotlib = "*"
 seaborn = "*"
@@ -23,6 +22,9 @@ torch = "*"
 umap-learn = "*"
 sacrebleu = "*"
 bert-score = "*"
+torchvision = "*"
+pillow = "*"
+weave = "*"
 
 [dev-packages]
 
