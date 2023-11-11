@@ -25,7 +25,7 @@ import wandb
 
 SEED = 1
 
-MODEL_ARTIFACT = 'pkthunder/model-registry/Pokemon Card Image Captioner Full Dataset Model:v0'
+MODEL_ARTIFACT = 'pkthunder/pokemon-cards/pokemon-image-captioning-model:v14'
 
 MODEL = None
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
